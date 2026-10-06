@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="tampal">
+<meta name="theme-color" content="#16171d">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon.png">
+<title>tampal</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header id="bar">
+  <button id="where" class="where" title="Project and file">
+    <span id="where-project">Choose a project</span>
+    <span id="where-file"></span>
+  </button>
+  <span id="save" class="save" title="Saved"></span>
+  <button id="undo" class="icon" title="Undo">↶</button>
+  <button id="redo" class="icon" title="Redo">↷</button>
+  <button id="inspect" class="icon pick" title="Tap something in the app to find its code">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>
+  </button>
+  <button id="more" class="icon" title="Settings">⋯</button>
+</header>
+
+<div id="banner" class="banner" hidden></div>
+
+<main id="split">
+  <section id="code-pane">
+    <div id="editor"></div>
+    <div id="code-empty" class="empty">Open a project to see its code here.</div>
+  </section>
+  <div id="divider" title="Drag to resize · double-tap to swap sizes"><span></span></div>
+  <section id="preview-pane">
+    <div id="stage">
+      <div id="device">
+        <div id="screen">
+          <div id="page-bg"></div>
+          <iframe id="app" title="The app" src="about:blank"></iframe>
+          <div id="statusbar"><span class="time">9:41</span><span class="icons">
+            <svg viewBox="0 0 18 12" width="17" height="11"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+            <svg viewBox="0 0 16 12" width="15" height="11"><path d="M8 11.5 5.6 9a3.4 3.4 0 0 1 4.8 0zM3.5 6.9a6.4 6.4 0 0 1 9 0l-1.4 1.4a4.4 4.4 0 0 0-6.2 0zM1.2 4.6a9.6 9.6 0 0 1 13.6 0l-1.4 1.4a7.6 7.6 0 0 0-10.8 0z"/></svg>
+            <svg viewBox="0 0 27 12" width="25" height="11"><rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".45"/><rect x="2" y="2" width="19" height="8" rx="2"/><rect x="24" y="4" width="2" height="4" rx="1" opacity=".45"/></svg>
+          </span></div>
+          <div id="island"></div>
+          <div id="safaribar"><span>🔒 localhost</span></div>
+          <div id="homebar"></div>
+        </div>
+      </div>
+    </div>
+    <div id="preview-empty" class="empty">The app shows here, as it looks on an iPhone 17.</div>
+  </section>
+</main>
+
+<section id="sheet" class="sheet collapsed" hidden>
+  <button id="sheet-handle" class="handle" title="Show or hide"><span></span></button>
+  <div class="sheet-head">
+    <div id="chain" class="chain"></div>
+    <button id="sel-parent" class="chip" title="Select its parent">↑ parent</button>
+    <button id="sel-child" class="chip" title="Select its first child">↓ child</button>
+    <button id="sel-clear" class="chip" title="Clear">✕</button>
+  </div>
+  <div class="sheet-body">
+    <div id="boxline" class="boxline"></div>
+    <div id="source" class="source"></div>
+    <div class="ask">
+      <textarea id="ask-text" rows="1" placeholder="Ask Claude: “less gap under this”"></textarea>
+      <button id="ask-send" class="send" title="Ask Claude to change it">Fix</button>
+    </div>
+    <div id="ask-log" class="ask-log" hidden></div>
+    <h4>CSS rules on it <small>(the top one wins)</small></h4>
+    <div id="rules" class="rules"></div>
+  </div>
+</section>
+
+<div id="picker" class="modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <input id="picker-search" type="search" placeholder="Search" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button id="picker-close" class="chip">Done</button>
+    </div>
+    <div id="picker-list" class="picker-list"></div>
+  </div>
+</div>
+
+<div id="menu" class="modal" hidden>
+  <div class="modal-card small">
+    <div class="menu-row"><span>Shown as</span>
+      <div class="seg" id="seg-mode"><button data-v="app">Home Screen app</button><button data-v="safari">Safari tab</button></div></div>
+    <div class="menu-row"><span>Phone size</span>
+      <div class="seg" id="seg-zoom"><button data-v="fit">Fit</button><button data-v="width">Fill width</button><button data-v="1">Actual</button></div></div>
+    <div class="menu-row"><span>Code text</span>
+      <div class="seg" id="seg-font"><button data-v="-1">A−</button><button data-v="1">A+</button></div></div>
+    <div class="menu-row"><span>Long lines</span>
+      <div class="seg" id="seg-wrap"><button data-v="1">Wrap</button><button data-v="0">Scroll</button></div></div>
+    <div class="menu-row"><span>Layout</span>
+      <div class="seg" id="seg-split"><button data-v="code">More code</button><button data-v="even">Even</button><button data-v="app">More app</button></div></div>
+    <div class="menu-row"><button id="reload" class="wide">Reload the app</button></div>
+    <div class="menu-row"><button id="menu-close" class="wide">Done</button></div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

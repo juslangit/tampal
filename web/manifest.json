@@ -1,0 +1,9 @@
+{
+  "name": "tampal",
+  "short_name": "tampal",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#16171d",
+  "theme_color": "#16171d",
+  "icons": [{ "src": "/icon.png", "sizes": "512x512", "type": "image/png" }]
+}
