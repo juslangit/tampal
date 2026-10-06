@@ -7,6 +7,11 @@ Android Studio's layout editor.
 - **Tap anything in the app** (🎯 on) → its line lights up in the code, its margin, padding
   and flex/grid gaps are drawn over it, and the CSS rules that style it are listed with
   `file:line`. Tap a rule to jump to it.
+- **Drag what you picked** → it follows your finger like a sprite, and on release the move
+  is written into the code: `position: relative; left/top` for normal elements, shifted
+  `top/left` (or `right/bottom`) for positioned ones. It goes into the CSS rule that matches
+  only that element, else a `style=""` on its tag, so things sharing a class stay put.
+  The ← ↑ ↓ → buttons nudge 1px. Undo takes it back.
 - **Type** → it saves to the file on the Mac by itself (every old version is kept in
   `data/history/`). CSS changes appear instantly; HTML/JS reload the app.
 - **Ask Claude** → "less gap under this". The `claude` command on the Mac makes the
@@ -45,4 +50,5 @@ searches the JS for their id/classes instead.
 cd build && npm install        # once (playwright-core)
 node tools/check.mjs                         # tap-to-code on Siti's page, iPhone-sized
 node tools/check-edit.mjs <scratch copy> [--claude]   # typing, live save, outside changes, Ask Claude
+node tools/check-move.mjs <scratch copy>              # dragging, nudges, where moves are written
 ```

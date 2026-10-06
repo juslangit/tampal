@@ -25,7 +25,20 @@
   label.style.cssText = "position:fixed;pointer-events:none;font:600 11px/1.3 -apple-system,system-ui,sans-serif;color:#fff;" +
     "background:#ff4fa3;padding:2px 6px;border-radius:4px;white-space:nowrap;display:none;max-width:90vw;overflow:hidden;text-overflow:ellipsis";
   layer.appendChild(label);
-  const attach = () => { if (!layer.isConnected) (document.body || document.documentElement).appendChild(layer); };
+  // The selected element must not scroll under a finger, or a drag turns into a page scroll
+  // (Siti sets touch-action: pan-x pan-y on everything). Only while 🎯 is on.
+  const grabStyle = document.createElement("style");
+  grabStyle.setAttribute("data-tampal-ui", "");
+  grabStyle.textContent = "[data-tampal-grab]{touch-action:none!important;-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}";
+  const attach = () => {
+    if (!layer.isConnected) (document.body || document.documentElement).appendChild(layer);
+    if (!grabStyle.isConnected) (document.head || document.documentElement).appendChild(grabStyle);
+  };
+  function mark(el) {
+    for (const n of document.querySelectorAll("[data-tampal-grab]")) n.removeAttribute("data-tampal-grab");
+    selected = el;
+    if (el && inspecting && el !== document.body && el !== document.documentElement) { attach(); el.setAttribute("data-tampal-grab", ""); }
+  }
 
   const place = (d, x, y, w, h) => {
     if (w <= 0.5 || h <= 0.5) { d.style.display = "none"; return; }
@@ -106,6 +119,7 @@
   function matchedRules(el) {
     const found = [];
     for (const sheet of document.styleSheets) {
+      if (sheet.ownerNode?.hasAttribute?.("data-tampal-ui")) continue;
       let rules; try { rules = sheet.cssRules; } catch { continue; }
       const owner = sheet.ownerNode;
       const source = sheet.href ? { href: new URL(sheet.href).pathname } : { inline: owner?.getAttribute?.("data-tampal-loc") || null };
@@ -124,10 +138,14 @@
         // As written (cssText keeps shorthands): a shorthand holding var()/env() reads back as
         // empty longhands — "padding-top: ;" — through rule.style[i].
         const decls = splitDecls(rule.style.cssText).map((d) => d.replace(/var\(--tampal-safe-(\w+)/g, "env(safe-area-inset-$1"));
-        found.push({ ...source, index, selector: rule.selectorText, media: media?.text || "", pseudo: hit.pseudo, decls });
+        let unique = false; try { unique = document.querySelectorAll(rule.selectorText).length === 1; } catch {}
+        found.push({ ...source, index, selector: rule.selectorText, media: media?.text || "", pseudo: hit.pseudo, decls, unique });
       });
     }
-    if (el.getAttribute("style")) found.push({ inlineAttr: true, selector: "style=\"…\"", decls: splitDecls(el.getAttribute("style")) });
+    // The style="" as written — without the translate tampal adds while something is being moved.
+    let own = el.getAttribute("style") || "";
+    if (el.__tampalMove) own = [...splitDecls(own).filter((d) => !/^translate\s*:/.test(d)), ...(el.__tampalMove.before ? [`translate: ${el.__tampalMove.before}`] : [])].join("; ");
+    if (own.trim()) found.push({ inlineAttr: true, selector: "style=\"…\"", decls: splitDecls(own) });
     return found.reverse(); // last rule wins in CSS, so show it first
   }
 
@@ -157,7 +175,7 @@
     const cs = getComputedStyle(el), r = el.getBoundingClientRect();
     const four = (k) => ["Top", "Right", "Bottom", "Left"].map((s) => Math.round(px(cs[k + s + (k === "border" ? "Width" : "")]) * 10) / 10);
     const clone = el.cloneNode(true);
-    for (const n of [clone, ...clone.querySelectorAll("[data-tampal-loc]")]) n.removeAttribute?.("data-tampal-loc");
+    for (const n of [clone, ...clone.querySelectorAll("[data-tampal-loc], [data-tampal-grab]")]) { n.removeAttribute?.("data-tampal-loc"); n.removeAttribute?.("data-tampal-grab"); }
     const chain = [];
     for (let n = el; n && n.nodeType === 1 && chain.length < 8; n = n.parentElement) chain.unshift(describe(n));
     return {
@@ -182,13 +200,34 @@
   // ------------------------------------------------------------ taps
   // A tap selects; a drag still scrolls the app. Taps are swallowed while inspecting, so
   // buttons and links in the app don't fire while Luqman is pointing at them.
-  let down = null;
-  const swallow = (e) => { if (inspecting && !e.target?.closest?.("[data-tampal-ui]")) { e.stopImmediatePropagation(); if (e.type !== "touchstart" && e.type !== "touchmove" && e.type !== "pointermove") e.preventDefault(); } };
+  // A tap selects. Dragging the selected element moves it, like a sprite in a 2D editor: it
+  // follows the finger through the CSS `translate` property (nothing else in the page moves),
+  // and on release the editor writes the move into the code.
+  let down = null, drag = null;
+  const swallow = (e) => { if (inspecting && !e.target?.closest?.("[data-tampal-ui]")) { e.stopImmediatePropagation(); if (e.type !== "touchmove" && e.type !== "pointermove" && (e.type !== "touchstart" || grabbable(e.target))) e.preventDefault(); } };
+  // Only the selected element (or something inside it) can be grabbed — never the whole page.
+  const grabbable = (t) => selected && t instanceof Node && selected.contains(t) && selected !== document.body && selected !== document.documentElement;
   for (const t of ["mousedown", "mouseup", "click", "dblclick", "touchstart", "touchend", "contextmenu", "submit", "focusin"]) addEventListener(t, swallow, { capture: true, passive: false });
-  addEventListener("pointerdown", (e) => { if (!inspecting) return; down = { x: e.clientX, y: e.clientY, t: Date.now() }; swallow(e); }, { capture: true, passive: false });
+  addEventListener("touchmove", (e) => { if (drag || (down && down.grab)) e.preventDefault(); }, { capture: true, passive: false });
+  addEventListener("pointerdown", (e) => {
+    if (!inspecting) return;
+    down = { x: e.clientX, y: e.clientY, t: Date.now(), grab: grabbable(e.target) };
+    swallow(e);
+  }, { capture: true, passive: false });
+  addEventListener("pointermove", (e) => {
+    if (!inspecting || !down?.grab) return;
+    const dx = Math.round(e.clientX - down.x), dy = Math.round(e.clientY - down.y);
+    if (!drag && Math.hypot(dx, dy) < 6) return;
+    if (!drag) drag = { base: pendingOf(selected) };
+    drag.dx = dx; drag.dy = dy;
+    setPending(selected, drag.base.dx + dx, drag.base.dy + dy);
+    draw(selected);
+    label.textContent = `${describe(selected)}  ↔ ${sign(drag.base.dx + dx)}  ↕ ${sign(drag.base.dy + dy)}`;
+  }, { capture: true });
   addEventListener("pointerup", (e) => {
     if (!inspecting) return;
     swallow(e);
+    if (drag) { const d = drag; drag = null; down = null; if (d.dx || d.dy) commitMove(d.dx, d.dy); return; }
     if (!down) return;
     const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
     down = null;
@@ -196,6 +235,52 @@
     const el = document.elementFromPoint(e.clientX, e.clientY);
     if (el && el !== layer) select(el);
   }, { capture: true });
+  addEventListener("pointercancel", () => { if (drag) { setPending(selected, drag.base.dx, drag.base.dy); draw(selected); } drag = null; down = null; }, true);
+  const sign = (n) => (n > 0 ? "+" : "") + n;
+
+  // Moves not yet in the CSS the page has loaded, shown with `translate`. Cleared the moment
+  // the saved CSS (or the reloaded page) arrives, so the element never jumps twice.
+  function pendingOf(el) { return el.__tampalMove || { dx: 0, dy: 0 }; }
+  function setPending(el, dx, dy) {
+    if (!el.__tampalMove) el.__tampalMove = { dx: 0, dy: 0, before: el.style.translate };
+    el.__tampalMove.dx = dx; el.__tampalMove.dy = dy;
+    el.style.translate = dx || dy ? `${dx}px ${dy}px` : el.__tampalMove.before;
+  }
+  function clearPending() {
+    for (const el of document.querySelectorAll("*")) if (el.__tampalMove) { el.style.translate = el.__tampalMove.before; delete el.__tampalMove; }
+  }
+
+  // What to write for a move: flow elements become position: relative with left/top offsets;
+  // positioned ones get their own left/top (or right/bottom, if that is what their CSS uses)
+  // shifted; sticky ones, whose top means "where to stick", get `translate` instead.
+  function commitMove(dx, dy) {
+    const el = selected;
+    const pend = pendingOf(el);
+    const cs = getComputedStyle(el);
+    const total = { dx: pend.dx, dy: pend.dy };          // includes moves not saved yet
+    const rules = matchedRules(el);
+    const uses = (prop) => rules.some((r) => r.decls.some((d) => new RegExp(`^${prop}\\s*:`).test(d) && !/:\s*auto\b/.test(d)));
+    const num = (v) => parseFloat(v) || 0;
+    const props = [];
+    if (cs.position === "sticky") {
+      // the live translate already includes the pending part; take the saved value from before
+      const saved = (pend.before || "0px 0px").split(" ").map(num);
+      props.push(["translate", `${(saved[0] || 0) + total.dx}px ${(saved[1] || 0) + total.dy}px`]);
+    } else {
+      if (cs.position === "static") props.push(["position", "relative"]);
+      const fixedFlow = cs.position === "static";
+      if (total.dx) {
+        if (!fixedFlow && uses("right") && !uses("left")) props.push(["right", `${Math.round(num(cs.right) - total.dx)}px`]);
+        else props.push(["left", `${Math.round((cs.left === "auto" || fixedFlow ? 0 : num(cs.left)) + total.dx)}px`]);
+      }
+      if (total.dy) {
+        if (!fixedFlow && uses("bottom") && !uses("top")) props.push(["bottom", `${Math.round(num(cs.bottom) - total.dy)}px`]);
+        else props.push(["top", `${Math.round((cs.top === "auto" || fixedFlow ? 0 : num(cs.top)) + total.dy)}px`]);
+      }
+    }
+    post({ ...info(el), type: "moved", props, delta: [dx, dy] });
+  }
+
   addEventListener("mousemove", (e) => {   // on the Mac, show what the mouse is over
     if (!inspecting || e.pointerType === "touch") return;
     const el = document.elementFromPoint(e.clientX, e.clientY);
@@ -203,7 +288,7 @@
   }, true);
 
   function select(el) {
-    selected = el; hovered = null;
+    mark(el); hovered = null;
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur?.();
     draw(el);
     post(info(el));
@@ -213,8 +298,8 @@
   addEventListener("message", (e) => {
     if (e.origin !== location.origin || !e.data?.tampal) return;
     const m = e.data;
-    if (m.type === "inspect") { inspecting = m.on; if (!m.on && !selected) draw(null); }
-    if (m.type === "clear") { selected = null; draw(null); }
+    if (m.type === "inspect") { inspecting = m.on; mark(selected); if (!m.on && !selected) draw(null); }
+    if (m.type === "clear") { mark(null); draw(null); }
     if (m.type === "parent" && selected?.parentElement && selected.parentElement !== document.documentElement) select(selected.parentElement);
     if (m.type === "child" && selected?.firstElementChild) select(selected.firstElementChild);
     if (m.type === "refresh" && selected) post({ ...info(selected), type: "updated" });
@@ -222,7 +307,7 @@
     if (m.type === "reveal") {
       const el = document.querySelector(`[data-tampal-loc="${m.loc}"]`) || [...document.querySelectorAll("[data-tampal-loc]")].find((n) => n.getAttribute("data-tampal-loc").startsWith(m.line + ":"));
       if (el && el !== document.documentElement && el !== document.head && !el.closest("head")) {
-        selected = el; draw(el);
+        mark(el); draw(el);
         if (m.scroll !== false) { const r = el.getBoundingClientRect(); if (r.bottom < 0 || r.top > innerHeight) el.scrollIntoView({ block: "center" }); }
         post({ ...info(el), type: "revealed" });
       }
@@ -230,7 +315,7 @@
     if (m.type === "reselect") {
       // After a reload: select it again quietly, without pulling the editor's cursor away.
       const el = m.loc && document.querySelector(`[data-tampal-loc="${m.loc}"]`);
-      if (el) { selected = el; draw(el); post({ ...info(el), type: "updated" }); }
+      if (el) { mark(el); draw(el); post({ ...info(el), type: "updated" }); }
     }
     // A CSS file was saved: swap it in place, without reloading the page or losing its state.
     if (m.type === "css") {
@@ -240,13 +325,19 @@
         if (u.pathname === m.path || m.alt?.includes(u.pathname)) {
           u.searchParams.set("tampal", Date.now());
           const fresh = link.cloneNode(); fresh.href = u.href;
-          fresh.onload = () => { link.remove(); redraw(); if (selected) post({ ...info(selected), type: "updated" }); };
+          fresh.onload = () => { link.remove(); clearPending(); redraw(); if (selected) post({ ...info(selected), type: "updated" }); };
           link.after(fresh); swapped = true;
         }
       }
       post({ type: "css-swapped", ok: swapped, path: m.path });
     }
     if (m.type === "scroll") scrollTo(0, m.y || 0);
+    if (m.type === "nudge" && selected && selected !== document.body) {
+      const p = pendingOf(selected);
+      setPending(selected, p.dx + m.dx, p.dy + m.dy); draw(selected);
+      commitMove(m.dx, m.dy);
+    }
+    if (m.type === "unmove") { clearPending(); redraw(); }
   });
 
   // Tell the editor which page this is, what it asks of the phone, and where it was scrolled.

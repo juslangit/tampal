@@ -322,6 +322,7 @@ addEventListener("message", (e) => {
   if (m.type === "leaving") S.keepY = m.y;
   if (m.type === "select") onSelect(m, true);
   if (m.type === "revealed") onSelect(m, false);
+  if (m.type === "moved") { S.selection = { ...m, jsHits: S.selection?.jsHits }; renderSheet(); writeMove(m).catch((e) => { console.error("move", e); send({ type: "unmove" }); toast("Move not saved: " + e.message, 4000); }); }
   if (m.type === "updated") { m.jsHits = S.selection?.jsHits; onSelect(m, false); }
   if (m.type === "css-swapped" && !m.ok) reloadApp();
   if (m.type === "app-error") toast("App error: " + m.text, 4000);
@@ -500,12 +501,7 @@ async function renderRules() {
   const seen = new Set();
   const BOX = /^(margin|padding|gap|row-gap|column-gap|height|min-height|max-height|width|top|bottom|inset|line-height)/;
   for (const r of s.rules) {
-    let file = null, line = null;
-    try {
-      if (r.href) { file = fileForHref(r.href); if (file) { const list = await cssRulesOf(file); line = pick(list, r)?.line; } }
-      else if (r.inline) { file = S.page; const list = await inlineRules(r.inline); line = pick(list, r)?.line; }
-      else if (r.inlineAttr && s.where?.exact) { file = S.page; line = Number(s.where.loc.split(":")[0]); }
-    } catch {}
+    const { file, line } = await ruleLocation(r, s);
     if (token !== rulesToken) return;
     // Later declarations of the same property win; mark the ones a later rule overrides.
     const decls = r.decls.map((d) => {
@@ -519,6 +515,15 @@ async function renderRules() {
       (r.media ? `<div class="media">@media ${esc(r.media)}</div>` : "") + decls + `</div>`);
   }
   $("rules").innerHTML = out.join("") || `<div class="rule">No CSS rules — only the browser's defaults.</div>`;
+}
+async function ruleLocation(r, s) {
+  let file = null, line = null;
+  try {
+    if (r.href) { file = fileForHref(r.href); if (file) { const list = await cssRulesOf(file); line = pick(list, r)?.line; } }
+    else if (r.inline) { file = S.page; const list = await inlineRules(r.inline); line = pick(list, r)?.line; }
+    else if (r.inlineAttr && s.where?.exact) { file = S.page; line = Number(s.where.loc.split(":")[0]); }
+  } catch {}
+  return { file, line };
 }
 function pick(list, r) {
   const at = list[r.index];
@@ -543,8 +548,108 @@ document.addEventListener("click", (e) => {
 
 $("sheet-handle").onclick = () => { $("sheet").classList.toggle("collapsed"); setTimeout(layoutDevice, 220); };
 $("sel-parent").onclick = () => send({ type: "parent" });
+for (const [id, dx, dy] of [["nudge-left", -1, 0], ["nudge-right", 1, 0], ["nudge-up", 0, -1], ["nudge-down", 0, 1]]) {
+  $(id).onclick = () => send({ type: "nudge", dx, dy });
+}
 $("sel-child").onclick = () => send({ type: "child" });
 $("sel-clear").onclick = () => { send({ type: "clear" }); S.selection = null; renderSheet(); view.dispatch({ effects: flash.of(null) }); setTimeout(layoutDevice, 50); };
+
+// ------------------------------------------------------------------ moving things
+// A drag (or an arrow) in the app arrives as CSS properties to set. They go where they will move
+// this element and nothing else: a CSS rule that matches only it, else a style="" on its tag.
+async function writeMove(m) {
+  const s = m;
+  let target = null;
+  const attr = s.rules.find((r) => r.inlineAttr);
+  if (attr && s.where?.exact) target = { kind: "attr" };
+  else {
+    for (const r of s.rules) {
+      if (r.inlineAttr || r.pseudo || !r.unique || (!r.href && !r.inline)) continue;
+      const loc = await ruleLocation(r, s);
+      if (loc.file && loc.line) { target = { kind: "rule", ...loc, selector: r.selector }; break; }
+    }
+    if (!target && s.where?.exact) target = { kind: "attr" };
+  }
+  if (!target) {
+    send({ type: "unmove" });
+    toast("Can't save this move: it's made by JavaScript and has no CSS rule of its own. Ask Claude instead.", 4500);
+    return;
+  }
+  const file = target.kind === "attr" ? S.page : target.file;
+  await openFile(file);
+  const text = view.state.doc.toString();
+  let from, to, insert;
+  if (target.kind === "attr") {
+    const [line, col] = s.where.loc.split(":").map(Number);
+    const start = view.state.doc.line(line).from + col - 1;
+    const end = tagEnd(text, start);
+    const tag = text.slice(start, end);
+    const st = /\sstyle\s*=\s*("([^"]*)"|'([^']*)')/i.exec(tag);
+    if (st) {
+      const q = st[1][0], val = st[2] ?? st[3];
+      const valFrom = start + st.index + st[0].indexOf(q) + 1;
+      from = valFrom; to = valFrom + val.length; insert = setDecls(val, m.props, false);
+    } else {
+      from = to = end - (tag.endsWith("/>") ? 2 : 1);
+      insert = ` style="${m.props.map(([p, v]) => `${p}: ${v}`).join("; ")}"`;
+    }
+  } else {
+    const lineFrom = view.state.doc.line(target.line).from;
+    const open = text.indexOf("{", lineFrom);
+    const close = blockEnd(text, open);
+    if (open < 0 || close < 0) { send({ type: "unmove" }); toast("Couldn't find that rule's { } in " + file); return; }
+    from = open + 1; to = close; insert = setDecls(text.slice(from, to), m.props, true);
+  }
+  // Send only the part that differs, so the cursor and undo stay tidy.
+  const old = text.slice(from, to);
+  let a = 0; while (a < old.length && a < insert.length && old[a] === insert[a]) a++;
+  let b = 0; while (b < old.length - a && b < insert.length - a && old[old.length - 1 - b] === insert[insert.length - 1 - b]) b++;
+  const cf = from + a, ct = to - b, ins = insert.slice(a, insert.length - b);
+  fromPreview = true;
+  view.dispatch({ changes: { from: cf, to: ct, insert: ins }, selection: { anchor: cf + ins.length },
+    effects: [flash.of({ from: cf, to: cf + ins.length }), EditorView.scrollIntoView(cf, { y: "center" })], userEvent: "input.move" });
+  fromPreview = false;
+  await flushSave();
+  const where = target.kind === "attr" ? `style="" on line ${s.where.loc.split(":")[0]}` : `${target.selector} (${file.split("/").pop()}:${target.line})`;
+  toast(`Moved ${m.delta[0] ? (m.delta[0] > 0 ? "→" : "←") + Math.abs(m.delta[0]) : ""}${m.delta[1] ? (m.delta[1] > 0 ? "↓" : "↑") + Math.abs(m.delta[1]) : ""} · saved in ${where}`, 2000);
+}
+// The closing } of the block that opens at `open`, stepping over strings and comments.
+function blockEnd(text, open) {
+  if (open < 0) return -1;
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    const c = text[i];
+    if (c === "/" && text[i + 1] === "*") { const e = text.indexOf("*/", i + 2); if (e < 0) return -1; i = e + 1; }
+    else if (c === '"' || c === "'") { let j = i + 1; while (j < text.length && text[j] !== c) { if (text[j] === "\\") j++; j++; } i = j; }
+    else if (c === "{") depth++;
+    else if (c === "}") { depth--; if (depth === 0) return i; }
+  }
+  return -1;
+}
+// Set each property inside a declaration block (or a style="" value): replace it where it is
+// written, otherwise add it at the end in the block's own style.
+function setDecls(block, props, isRule) {
+  for (const [prop, value] of props) {
+    // "left" must not catch "margin-left": the property name has to start the declaration.
+    const re = new RegExp(`(^|[;{\\s])(${prop})(\\s*:\\s*)([^;}]*?)(\\s*)(?=;|}|$)`);
+    if (re.test(block)) { block = block.replace(re, (_, pre, p, colon, _v, ws) => `${pre}${p}${colon}${value}${ws}`); continue; }
+    if (isRule && block.includes("\n")) {
+      const lines = block.split("\n");
+      let last = lines.length - 1;
+      while (last > 0 && !lines[last].trim()) last--;
+      const indent = (/^\s*/.exec(lines.find((l) => l.trim()) || "  ") || ["  "])[0] || "  ";
+      if (lines[last].trim() && !/[;{]\s*$/.test(lines[last])) lines[last] = lines[last].replace(/\s*$/, ";");
+      lines.splice(last + 1, 0, `${indent}${prop}: ${value};`);
+      block = lines.join("\n");
+    } else {
+      const trimmed = block.replace(/\s*$/, "");
+      const tail = block.slice(trimmed.length);
+      const sep = trimmed && !/;$/.test(trimmed) ? ";" : "";
+      block = isRule ? `${trimmed}${sep} ${prop}: ${value};${tail || " "}` : `${trimmed}${sep}${trimmed ? " " : ""}${prop}: ${value}`;
+    }
+  }
+  return block;
+}
 
 // ------------------------------------------------------------------ asking Claude
 const askText = $("ask-text");
