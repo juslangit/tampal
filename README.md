@@ -12,6 +12,11 @@ Android Studio's layout editor.
   `top/left` (or `right/bottom`) for positioned ones. It goes into the CSS rule that matches
   only that element, else a `style=""` on its tag, so things sharing a class stay put.
   The ← ↑ ↓ → buttons nudge 1px. Undo takes it back.
+- **⌨️ Keyboard** → focuses the app's message box (or the field you picked) and draws the
+  iPhone keyboard over the bottom, as iOS does: the page is not resized, only
+  `visualViewport` gets shorter, and if the field is still covered the whole page pans up.
+  Tapping a field in the app with 🎯 off brings it up too. On the iPhone, the preview's fields
+  never open the real keyboard.
 - **Type** → it saves to the file on the Mac by itself (every old version is kept in
   `data/history/`). CSS changes appear instantly; HTML/JS reload the app.
 - **Ask Claude** → "less gap under this". The `claude` command on the Mac makes the
@@ -51,4 +56,5 @@ cd build && npm install        # once (playwright-core)
 node tools/check.mjs                         # tap-to-code on Siti's page, iPhone-sized
 node tools/check-edit.mjs <scratch copy> [--claude]   # typing, live save, outside changes, Ask Claude
 node tools/check-move.mjs <scratch copy>              # dragging, nudges, where moves are written
+node tools/check-keyboard.mjs [<scratch copy>]        # the keyboard on Siti, and on a page that ignores it
 ```

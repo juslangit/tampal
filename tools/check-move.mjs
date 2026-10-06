@@ -54,8 +54,8 @@ const c0 = await rect("#composer");
 let p = toScreen({ x: c0.x + 120, y: c0.y + 10 });
 await page.touchscreen.tap(p.x, p.y); await sleep(800);
 // the tap lands on the textarea inside; walk up to the form
-for (let i = 0; i < 3 && !(await page.textContent("#chain")).trim().endsWith("form#composer"); i++) { await page.click("#sel-parent"); await sleep(300); }
-ok((await page.textContent("#chain")).trim().endsWith("form#composer"), "selected the message box");
+for (let i = 0; i < 3 && !(await page.textContent("#chain")).trim().endsWith("#composer"); i++) { await page.click("#sel-parent"); await sleep(300); }
+ok((await page.textContent("#chain")).trim().endsWith("#composer"), "selected the message box");
 await sleep(400); await measure();
 p = toScreen({ x: c0.x + 120, y: c0.y + 10 });
 await drag(p.x, p.y, 20 * s, -30 * s);

@@ -299,9 +299,53 @@ function showPage(rel) {
   }).catch(() => { S.meta = {}; }).finally(() => {
     applyGeometry();
     S.selection = null; renderSheet();
+    if (S.kb.open) hideKeyboard();
+    S.kb.loc = null;
     frame.src = appUrl(rel);
   });
 }
+
+// ------------------------------------------------------------------ the keyboard
+// iPhone 17 portrait: 336pt from the bottom of the screen; Safari adds its 44pt ∧ ∨ Done bar on
+// top. (Measured off iOS screenshots — close, not exact to the point.)
+const KB = 336, ACC = 44;
+S.kb = { open: false, loc: null };
+function kbHeight() { return KB + (S.mode === "safari" ? ACC : 0); }
+function kbVisible() {
+  // How much of the page stays visible above the keyboard.
+  const g = geometry();
+  return Math.max(0, Math.min(g.height, PHONE.h - kbHeight() - g.top));
+}
+function drawKeyboard() {
+  const k = $("kbd");
+  const row = (keys, cls = "") => `<div class="row ${cls}">${keys}</div>`;
+  const letters = (s) => [...s].map((c) => `<span class="key">${c}</span>`).join("");
+  k.innerHTML = "" +
+    (S.mode === "safari" ? `<div class="acc"><span>∧ &nbsp; ∨</span><b>Done</b></div>` : "") +
+    `<div class="board"><div class="sug"><span>“I”</span><span>The</span><span>I'm</span></div>` +
+    row(letters("qwertyuiop")) + row(letters("asdfghjkl"), "r2") +
+    row(`<span class="key fn">⇧</span>${letters("zxcvbnm")}<span class="key fn">⌫</span>`, "r3") +
+    row(`<span class="key fn">123</span><span class="key fn">☺</span><span class="key space">space</span><span class="key fn ret">return</span>`) +
+    `<div class="bottom"><span>🌐</span><span class="tag">tampal keyboard · ${kbHeight()}pt</span><span>🎙</span></div></div>`;
+  k.classList.toggle("dark", dark((S.meta || {}).background || "#fff"));
+}
+function showKeyboard(loc) {
+  S.kb.open = true; S.kb.loc = loc || S.kb.loc;
+  drawKeyboard();
+  $("kbd").hidden = false;
+  $("safaribar").style.visibility = "hidden";      // Safari's toolbar goes away while typing
+  $("kbd-btn").classList.add("on");
+  send({ type: "kb-set", open: true, visible: kbVisible() });
+}
+function hideKeyboard() {
+  S.kb.open = false;
+  $("kbd").hidden = true;
+  $("safaribar").style.visibility = "";
+  $("kbd-btn").classList.remove("on");
+  frame.style.transform = "";
+  send({ type: "kb-set", open: false });
+}
+$("kbd-btn").onclick = () => { if (S.kb.open) hideKeyboard(); else send({ type: "kb-open", loc: S.kb.loc }); };
 
 // ------------------------------------------------------------------ messages from the app
 addEventListener("message", (e) => {
@@ -318,8 +362,16 @@ addEventListener("message", (e) => {
     if (geoChanged && cookieChanged) { reloadApp(); return; }     // the app opened a page that asks for a different shape
     if (S.keepY != null) { send({ type: "scroll", y: S.keepY }); S.keepY = null; }
     if (S.reselect) { send({ type: "reselect", loc: S.reselect }); S.reselect = null; }
+    if (S.kb.open) { frame.style.transform = ""; send({ type: "kb-open", loc: S.kb.loc }); }
   }
   if (m.type === "leaving") S.keepY = m.y;
+  if (m.type === "kb-focused" || m.type === "kb-auto") { showKeyboard(m.loc); if (m.type === "kb-focused") toast(`Keyboard up · typing in ${m.label}`, 1600); }
+  if (m.type === "kb-none") { toast("This page has no message box or text field to type in", 2500); hideKeyboard(); }
+  if (m.type === "kb-away") hideKeyboard();
+  if (m.type === "kb-pan") {
+    frame.style.transform = m.pan ? `translateY(${-m.pan}px)` : "";
+    if (m.hidden) toast("The field is still under the keyboard", 2500);
+  }
   if (m.type === "select") onSelect(m, true);
   if (m.type === "revealed") onSelect(m, false);
   if (m.type === "moved") { S.selection = { ...m, jsHits: S.selection?.jsHits }; renderSheet(); writeMove(m).catch((e) => { console.error("move", e); send({ type: "unmove" }); toast("Move not saved: " + e.message, 4000); }); }
@@ -823,7 +875,7 @@ function syncMenu() {
     for (const b of $(id).children) b.classList.toggle("on", b.dataset.v === v);
   }
 }
-$("seg-mode").onclick = (e) => { const v = e.target.dataset.v; if (!v) return; S.mode = v; store.set("mode", v); syncMenu(); applyGeometry(); reloadApp(); };
+$("seg-mode").onclick = (e) => { const v = e.target.dataset.v; if (!v) return; S.mode = v; store.set("mode", v); syncMenu(); applyGeometry(); if (S.kb.open) drawKeyboard(); reloadApp(); };
 $("seg-zoom").onclick = (e) => { const v = e.target.dataset.v; if (!v) return; S.zoom = v; store.set("zoom", v); syncMenu(); layoutDevice(); };
 $("seg-wrap").onclick = (e) => { const v = e.target.dataset.v; if (!v) return; S.wrap = v === "1"; store.set("wrap", S.wrap); syncMenu(); view.dispatch({ effects: wrapping.reconfigure(S.wrap ? EditorView.lineWrapping : []) }); };
 $("seg-font").onclick = (e) => { const v = Number(e.target.dataset.v); if (!v) return; S.font = Math.max(8, Math.min(20, S.font + v)); store.set("font", S.font); view.dispatch({ effects: sizing.reconfigure(fontTheme(S.font)) }); toast(`Code text ${S.font}px`, 900); };

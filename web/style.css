@@ -67,6 +67,35 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   background: rgba(245,245,247,.82); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 2px 12px rgba(0,0,0,.18); }
 #device.safari #safaribar { display: grid; }
 
+/* ---------- the keyboard: iOS 26, iPhone 17 portrait — 336pt from the bottom of the screen
+   (suggestions, three letter rows, space row, globe/mic), plus Safari's 44pt ∧ ∨ Done bar */
+.pick.on, #kbd-btn.on { background: var(--accent); color: #fff; }
+#app { transition: transform .25s ease; }
+#kbd { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; display: flex; flex-direction: column;
+  font-family: -apple-system, system-ui, sans-serif; user-select: none; -webkit-user-select: none;
+  animation: kbd-up .25s ease; --k: #fff; --k2: #abb0ba; --kt: #000; --kbg: rgba(208,211,218,.92); --sug: #3c3c43; }
+#kbd.dark { --k: #6b6b6f; --k2: #464649; --kt: #fff; --kbg: rgba(43,43,45,.94); --sug: #ebebf5; }
+@keyframes kbd-up { from { transform: translateY(100%); } }
+#kbd .acc { height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; color: #0a84ff; font-size: 17px;
+  background: var(--kbg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-top: .5px solid rgba(0,0,0,.15); }
+#kbd .acc b { font-weight: 600; }
+#kbd .board { height: 336px; background: var(--kbg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-radius: 26px 26px 0 0; padding: 0 3px; display: flex; flex-direction: column; }
+#kbd .acc + .board { border-radius: 0; }
+#kbd .sug { height: 44px; display: flex; align-items: center; color: var(--sug); font-size: 16px; }
+#kbd .sug span { flex: 1; text-align: center; }
+#kbd .sug span + span { border-left: 1px solid rgba(128,128,128,.35); }
+#kbd .row { display: flex; justify-content: center; gap: 6px; height: 42px; margin: 0 0 12px; }
+#kbd .key { flex: 0 0 34px; background: var(--k); color: var(--kt); border-radius: 8px; display: grid; place-items: center;
+  font-size: 23px; box-shadow: 0 1px 0 rgba(0,0,0,.3); }
+#kbd .key.fn { background: var(--k2); font-size: 16px; flex-basis: 44px; }
+#kbd .key.space { flex: 1 1 auto; font-size: 16px; }
+#kbd .key.ret { flex-basis: 92px; font-size: 16px; }
+#kbd .row.r2 { padding: 0 19px; }
+#kbd .row.r3 .fn { margin: 0 6px; }
+#kbd .bottom { flex: 1; display: flex; justify-content: space-between; align-items: flex-start; padding: 4px 22px 0; color: var(--kt); opacity: .75; font-size: 22px; }
+#kbd .tag { font: 600 11px -apple-system, system-ui; color: #fff; background: rgba(255,79,163,.85); padding: 3px 8px; border-radius: 10px; opacity: 1; margin-top: 4px; }
+
 /* ---------- the details sheet */
 .sheet { flex: none; background: var(--panel); border-top: 1px solid var(--line); display: flex; flex-direction: column;
   height: 46vh; max-height: calc(var(--vh, 100dvh) - 160px); padding-bottom: max(var(--sab), 6px); transition: height .2s; }
